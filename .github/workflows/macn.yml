@@ -13,7 +13,10 @@ jobs:
         run: |
           USERNAME="remoteuser"
           PASSWORD=$(openssl rand -base64 12)
-          UNIQUE_ID="502" # Avoids collision with 'runner' (501)
+          # UID 501 is the default 'runner'; using 502 prevents eDSRecordAlreadyExists
+          UNIQUE_ID="502" 
+          
+          echo "Setting up $USERNAME with UID $UNIQUE_ID..."
           
           # Clean and Create User
           sudo dscl . -delete /Users/$USERNAME > /dev/null 2>&1 || true
@@ -31,29 +34,34 @@ jobs:
 
       - name: Fix Black Screen and Enable VNC
         run: |
-          # 1. Reset Screen Recording permissions to bypass Black Screen
+          # 1. Reset Screen Capture permissions for 2025 compatibility
           sudo tccutil reset ScreenCapture || true
           
-          # 2. Enable Remote Management (ARD/VNC)
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate -configure -access -on -privs -all -restart -agent -menu
+          # 2. Activate Remote Management service
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate
           
-          # 3. Explicitly grant 'remoteuser' permissions to prevent Auth Errors
+          # 3. Grant ALL users full access privileges (Fixes Authentication Error)
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -configure -access -on -users remoteuser -privs -all -restart
+            -configure -allowAccessFor -allUsers -privs -all
           
-          # 4. Set legacy VNC Password for Android/Windows clients
+          # 4. Set legacy VNC Password for 3rd-party clients like RealVNC
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -configure -clientopts -setvncpasswd -vncpasswd "VNCpass123!"
           
-          # 5. Force UI refresh to wake up the headless display
+          # 5. Restart agent to apply changes
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
+          
+          # 6. Kill loginwindow to force UI refresh (Fixes Black Screen)
           sudo killall loginwindow
 
       - name: Install and Start Tailscale
         run: |
+          # Use Brew to install Tailscale on macOS 15
           brew install tailscale
           sudo tailscaled install-system-daemon
           sleep 5
+          
+          # Join your Tailnet
           sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-${{ github.run_id }}
           
           TS_IP=$(tailscale ip -4)
@@ -62,21 +70,20 @@ jobs:
       - name: Maintain Connection Info
         run: |
           echo "---------------------------------------------------"
-          echo "MAC REMOTE ACCESS ACTIVE (2025 FIX)"
+          echo "MAC REMOTE ACCESS READY"
           echo "---------------------------------------------------"
           echo "Tailscale IP: $TAILSCALE_IP"
           echo "Username:     $REMOTE_USER"
           echo "Password:     $REMOTE_PASS"
           echo "VNC Password: VNCpass123!"
           echo "---------------------------------------------------"
-          echo "CONNECTION STEPS FOR ANDROID:"
-          echo "1. Connect Tailscale app on Android."
-          echo "2. Open RealVNC Viewer and add: $TAILSCALE_IP"
-          echo "3. Password 1 (VNC Prompt): VNCpass123!"
-          echo "4. Password 2 (Mac Login Screen): $REMOTE_PASS"
+          echo "Quick Guide:"
+          echo "1. First Prompt (VNC password): VNCpass123!"
+          echo "2. Second Prompt (Login Screen): $REMOTE_PASS"
           echo "---------------------------------------------------"
           
+          # Keep the runner active for the full duration
           while true; do
-            echo "[$(date)] Mac Runner Active..."
+            echo "[$(date)] Mac Runner Heartbeat - Connection Active"
             sleep 300
           done

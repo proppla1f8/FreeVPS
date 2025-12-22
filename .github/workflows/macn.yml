@@ -1,24 +1,22 @@
-name: Mac-Remote-Access-Final-2025
+name: Mac-Remote-Access-Final
 
 on:
   workflow_dispatch:
 
 jobs:
-  macos-setup:
+  secure-macos:
     runs-on: macos-latest
     timeout-minutes: 3600
 
     steps:
-      - name: Create Admin User
+      - name: Create Admin User and Permissions
         run: |
           USERNAME="remoteuser"
           PASSWORD=$(openssl rand -base64 12)
-          # UID 501 is the default 'runner'; using 502 prevents eDSRecordAlreadyExists
-          UNIQUE_ID="502" 
+          # Use 502 to avoid collision with default 'runner' (501)
+          UNIQUE_ID="502"
           
-          echo "Setting up $USERNAME with UID $UNIQUE_ID..."
-          
-          # Clean and Create User
+          # 1. Create the user account
           sudo dscl . -delete /Users/$USERNAME > /dev/null 2>&1 || true
           sudo dscl . -create /Users/$USERNAME
           sudo dscl . -create /Users/$USERNAME UserShell /bin/bash
@@ -29,45 +27,35 @@ jobs:
           sudo dscl . -passwd /Users/$USERNAME "$PASSWORD"
           sudo dseditgroup -o edit -a $USERNAME -t user admin
           
-          echo "REMOTE_USER=$USERNAME" >> $GITHUB_ENV
-          echo "REMOTE_PASS=$PASSWORD" >> $GITHUB_ENV
-
-      - name: Fix Black Screen and Enable VNC
-        run: |
-          # 1. Reset Screen Capture permissions for 2025 compatibility
-          sudo tccutil reset ScreenCapture || true
-          
-          # 2. Activate Remote Management service
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -activate
-          
-          # 3. Grant ALL users full access privileges (Fixes Authentication Error)
+          # 2. Enable Remote Management (ARD/VNC)
+          # This command activates the agent and gives access to ALL users
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -configure -allowAccessFor -allUsers -privs -all
+            -activate -configure -access -on -privs -all -restart -agent -menu
           
-          # 4. Set legacy VNC Password for 3rd-party clients like RealVNC
+          # 3. FIX: Specifically grant 'remoteuser' full privileges (Observer, Control, etc.)
+          # This prevents the "Authentication Error" on Android clients
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure -access -on -users $USERNAME -privs -all -restart
+          
+          # 4. Set legacy VNC Password for 3rd-party Android apps
           sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
             -configure -clientopts -setvncpasswd -vncpasswd "VNCpass123!"
           
-          # 5. Restart agent to apply changes
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart -restart -agent
-          
-          # 6. Kill loginwindow to force UI refresh (Fixes Black Screen)
-          sudo killall loginwindow
+          echo "REMOTE_USER=$USERNAME" >> $GITHUB_ENV
+          echo "REMOTE_PASS=$PASSWORD" >> $GITHUB_ENV
 
       - name: Install and Start Tailscale
         run: |
-          # Use Brew to install Tailscale on macOS 15
           brew install tailscale
           sudo tailscaled install-system-daemon
           sleep 5
-          
-          # Join your Tailnet
+          # Join your Tailnet (Requires TAILSCALE_AUTH_KEY in Secrets)
           sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-${{ github.run_id }}
           
           TS_IP=$(tailscale ip -4)
           echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
 
-      - name: Maintain Connection Info
+      - name: Maintain Connection
         run: |
           echo "---------------------------------------------------"
           echo "MAC REMOTE ACCESS READY"
@@ -77,13 +65,14 @@ jobs:
           echo "Password:     $REMOTE_PASS"
           echo "VNC Password: VNCpass123!"
           echo "---------------------------------------------------"
-          echo "Quick Guide:"
-          echo "1. First Prompt (VNC password): VNCpass123!"
-          echo "2. Second Prompt (Login Screen): $REMOTE_PASS"
+          echo "Android Guide:"
+          echo "1. Connect Tailscale on your phone."
+          echo "2. Use RealVNC Viewer for Android."
+          echo "3. Password 1 (if asked immediately): VNCpass123!"
+          echo "4. Password 2 (at Mac Login Screen): $REMOTE_PASS"
           echo "---------------------------------------------------"
           
-          # Keep the runner active for the full duration
           while true; do
-            echo "[$(date)] Mac Runner Heartbeat - Connection Active"
+            echo "[$(date)] Connection Active - Heartbeat Sent"
             sleep 300
           done

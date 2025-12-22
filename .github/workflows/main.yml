@@ -11,23 +11,30 @@ jobs:
       - name: Connect to Tailscale
         uses: tailscale/github-action@v4
         with:
-          auth-key: ${{ secrets.TAILSCALE_AUTHKEY }}
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}  # Fixed: changed from auth-key to authkey
           tags: tag:ci
 
       - name: Setup Kali Desktop and RDP
         run: |
-          sudo apt update
+          sudo apt-get update
           # Install Kali desktop environment and RDP server
-          sudo apt install -y kali-desktop-xfce xrdp
+          sudo apt-get install -y kali-desktop-xfce xrdp
+          
+          # Configure XRDP to use XFCE
+          echo "xfce4-session" > ~/.xsession
+          
           sudo systemctl enable xrdp
           sudo systemctl start xrdp
+          
           # Create a user for login
           sudo useradd -m kaliuser
           echo "kaliuser:YourSecurePassword123" | sudo chpasswd
           sudo usermod -aG sudo kaliuser
 
       - name: Keep Runner Alive
+        if: always()  # Ensures the runner stays alive even if previous steps take time
         run: |
-          echo "Tailscale IP: $(tailscale ip -4)"
-          # Keeps the job running for up to 6 hours
+          echo "Connect to this IP using Microsoft Remote Desktop:"
+          tailscale ip -4
+          # Keeps the job running for 6 hours
           sleep 21600 

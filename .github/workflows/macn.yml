@@ -1,39 +1,23 @@
-name: Mac-Remote-Access
+name: Mac-Remote-Access-Final
 
 on:
   workflow_dispatch:
 
 jobs:
   secure-macos:
-    # Uses the latest macOS image (macOS 14 or 15 in late 2025)
     runs-on: macos-latest
     timeout-minutes: 3600
 
     steps:
-      - name: Configure Remote Management (VNC)
-        run: |
-          # Enable Apple Remote Desktop / VNC
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -activate -configure -access -on -privs -all -restart -agent -menu
-          
-          # Set a VNC-specific password for legacy client compatibility
-          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
-            -configure -clientopts -setvncpasswd -vncpasswd "VNCpass123!"
-
-      - name: Create Admin User
+      - name: Create Admin User and Permissions
         run: |
           USERNAME="remoteuser"
-          # Generate a secure random password
           PASSWORD=$(openssl rand -base64 12)
-          # UID 501 is taken by the 'runner' user; use 502 to avoid eDSRecordAlreadyExists
+          # Use 502 to avoid collision with default 'runner' (501)
           UNIQUE_ID="502"
           
-          echo "Setting up user: $USERNAME with UID: $UNIQUE_ID"
-          
-          # Clean up any existing record
+          # 1. Create the user account
           sudo dscl . -delete /Users/$USERNAME > /dev/null 2>&1 || true
-          
-          # Create user account
           sudo dscl . -create /Users/$USERNAME
           sudo dscl . -create /Users/$USERNAME UserShell /bin/bash
           sudo dscl . -create /Users/$USERNAME RealName "Remote Admin"
@@ -41,46 +25,54 @@ jobs:
           sudo dscl . -create /Users/$USERNAME PrimaryGroupID 20
           sudo dscl . -create /Users/$USERNAME NFSHomeDirectory /Users/$USERNAME
           sudo dscl . -passwd /Users/$USERNAME "$PASSWORD"
-          
-          # Grant Administrator privileges
           sudo dseditgroup -o edit -a $USERNAME -t user admin
           
-          # Store credentials for the final step
+          # 2. Enable Remote Management (ARD/VNC)
+          # This command activates the agent and gives access to ALL users
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -activate -configure -access -on -privs -all -restart -agent -menu
+          
+          # 3. FIX: Specifically grant 'remoteuser' full privileges (Observer, Control, etc.)
+          # This prevents the "Authentication Error" on Android clients
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure -access -on -users $USERNAME -privs -all -restart
+          
+          # 4. Set legacy VNC Password for 3rd-party Android apps
+          sudo /System/Library/CoreServices/RemoteManagement/ARDAgent.app/Contents/Resources/kickstart \
+            -configure -clientopts -setvncpasswd -vncpasswd "VNCpass123!"
+          
           echo "REMOTE_USER=$USERNAME" >> $GITHUB_ENV
           echo "REMOTE_PASS=$PASSWORD" >> $GITHUB_ENV
 
       - name: Install and Start Tailscale
         run: |
-          # Install Tailscale via Homebrew
           brew install tailscale
-          
-          # Start the Tailscale daemon
           sudo tailscaled install-system-daemon
           sleep 5
-          
-          # Connect to Tailnet
+          # Join your Tailnet (Requires TAILSCALE_AUTH_KEY in Secrets)
           sudo tailscale up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-mac-${{ github.run_id }}
           
-          # Capture Tailscale IP
           TS_IP=$(tailscale ip -4)
           echo "TAILSCALE_IP=$TS_IP" >> $GITHUB_ENV
 
       - name: Maintain Connection
         run: |
           echo "---------------------------------------------------"
-          echo "MAC REMOTE ACCESS ACTIVE"
+          echo "MAC REMOTE ACCESS READY"
           echo "---------------------------------------------------"
           echo "Tailscale IP: $TAILSCALE_IP"
           echo "Username:     $REMOTE_USER"
           echo "Password:     $REMOTE_PASS"
           echo "VNC Password: VNCpass123!"
           echo "---------------------------------------------------"
-          echo "To connect from a Mac: Finder -> Cmd+K -> vnc://$TAILSCALE_IP"
-          echo "To connect from Windows: Use RealVNC or TigerVNC"
+          echo "Android Guide:"
+          echo "1. Connect Tailscale on your phone."
+          echo "2. Use RealVNC Viewer for Android."
+          echo "3. Password 1 (if asked immediately): VNCpass123!"
+          echo "4. Password 2 (at Mac Login Screen): $REMOTE_PASS"
           echo "---------------------------------------------------"
           
-          # Infinite loop to keep the runner alive
           while true; do
-            echo "[$(date)] Mac Runner Heartbeat - Connection Active"
+            echo "[$(date)] Connection Active - Heartbeat Sent"
             sleep 300
           done

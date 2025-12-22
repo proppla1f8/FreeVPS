@@ -1,0 +1,33 @@
+name: Kali Linux with Tailscale
+on: workflow_dispatch
+
+jobs:
+  kali-rdp:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Connect to Tailscale
+        uses: tailscale/github-action@v4
+        with:
+          auth-key: ${{ secrets.TAILSCALE_AUTHKEY }}
+          tags: tag:ci
+
+      - name: Setup Kali Desktop and RDP
+        run: |
+          sudo apt update
+          # Install Kali desktop environment and RDP server
+          sudo apt install -y kali-desktop-xfce xrdp
+          sudo systemctl enable xrdp
+          sudo systemctl start xrdp
+          # Create a user for login
+          sudo useradd -m kaliuser
+          echo "kaliuser:YourSecurePassword123" | sudo chpasswd
+          sudo usermod -aG sudo kaliuser
+
+      - name: Keep Runner Alive
+        run: |
+          echo "Tailscale IP: $(tailscale ip -4)"
+          # Keeps the job running for up to 6 hours
+          sleep 21600 

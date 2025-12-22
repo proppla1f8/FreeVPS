@@ -1,8 +1,8 @@
-name: Kali Linux with Tailscale
+name: Ubuntu Desktop with Tailscale
 on: workflow_dispatch
 
 jobs:
-  kali-rdp:
+  ubuntu-rdp:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -14,38 +14,35 @@ jobs:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
           tags: tag:ci
 
-      - name: Setup Kali Desktop and RDP
+      - name: Setup Desktop and RDP
         run: |
-          # 1. Add Kali Linux repositories and GPG keys
-          sudo apt-get update && sudo apt-get install -y wget gnupg
-          wget -q -O - archive.kali.org | sudo gpg --dearmor -o /etc/apt/trusted.gpg.d/kali-archive-keyring.gpg
-          echo "deb http.kali.org kali-rolling main contrib non-free" | sudo tee /etc/apt/sources.list.d/kali.list
-          
-          # 2. Update and install Kali Desktop (DEBIAN_FRONTEND skips manual prompts)
           sudo apt-get update
-          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y kali-desktop-xfce xrdp
+          # Install XFCE Desktop (Lightweight) and XRDP
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y xfce4 xfce4-goodies xrdp
           
-          # 3. Configure XRDP to use XFCE session
+          # Configure XRDP to use XFCE session
           echo "xfce4-session" > ~/.xsession
+          
+          # Start and enable RDP service
           sudo systemctl enable xrdp
           sudo systemctl restart xrdp
           
-          # 4. Create a user for RDP login
-          sudo useradd -m kaliuser
-          echo "kaliuser:YourSecurePassword123" | sudo chpasswd
-          sudo usermod -aG sudo kaliuser
+          # Create a user for RDP login
+          sudo useradd -m ubuntuuser
+          echo "ubuntuuser:YourSecurePassword123" | sudo chpasswd
+          sudo usermod -aG sudo ubuntuuser
           
-          # 5. Fix permissions for the RDP user
-          sudo chown kaliuser:kaliuser /home/kaliuser/.xsession
+          # Fix ownership for the session file
+          sudo chown ubuntuuser:ubuntuuser /home/ubuntuuser/.xsession
 
       - name: Keep Runner Alive
         if: always()
         run: |
           echo "=========================================="
-          echo "SUCCESS! KALI IS READY."
+          echo "UBUNTU DESKTOP IS READY (2025)"
           echo "Connect to this IP using Microsoft Remote Desktop:"
           tailscale ip -4
-          echo "Username: kaliuser"
+          echo "Username: ubuntuuser"
           echo "Password: YourSecurePassword123"
           echo "=========================================="
           # Keeps the job running for 6 hours
